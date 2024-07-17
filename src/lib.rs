@@ -1,10 +1,7 @@
-// use std::{
-//     fs::File,
-//     io::{BufRead, BufReader, Seek, SeekFrom},
-//     path::PathBuf,
-// };
-
-use std::path::PathBuf;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader, Seek, SeekFrom},
+};
 
 use ethers::{
     contract::{Eip712, EthAbiType},
@@ -13,10 +10,7 @@ use ethers::{
 use hyperliquid_rust_sdk::Actions;
 use notify::{event::ModifyKind, Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
-use tokio::{
-    io::{AsyncBufReadExt, AsyncSeekExt, BufReader, SeekFrom},
-    sync::mpsc::Sender,
-};
+use tokio::sync::mpsc::Sender;
 
 #[derive(Debug, Eip712, Clone, EthAbiType)]
 #[eip712(
@@ -101,12 +95,13 @@ impl SignedAction {
     }
 }
 
-pub async fn subscribe_hl_blocks(
-    path: PathBuf,
-    block_tx: Sender<eyre::Result<Block>>,
-) -> eyre::Result<()> {
-    let mut path = PathBuf::from(path);
-    let mut pos = tokio::fs::metadata(&path).await?.len();
+pub async fn subscribe_hl_blocks(block_tx: Sender<eyre::Result<Block>>) -> eyre::Result<()> {
+    let mut path = dirs::home_dir()
+        .unwrap()
+        .join("hl")
+        .join("data")
+        .join("replica_cmds");
+    let mut pos = std::fs::metadata(&path)?.len();
 
     let (tx, rx) = std::sync::mpsc::channel();
     let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
@@ -123,22 +118,14 @@ pub async fn subscribe_hl_blocks(
                         pos = 0;
                         path = modified_path.clone();
                     }
-                    let mut f = tokio::fs::File::open(&path).await.unwrap();
-                    f.seek(SeekFrom::Start(pos)).await?;
+                    let mut f = std::fs::File::open(&path).unwrap();
+                    f.seek(SeekFrom::Start(pos))?;
 
-                    pos = f.metadata().await?.len();
+                    pos = f.metadata()?.len();
 
-                    let reader = BufReader::new(&mut f);
-                    let mut lines = reader.lines();
-                    while let Some(line) = lines.next_line().await? {
-                        if line.starts_with('{') {
-                            let block: eyre::Result<Block> =
-                                serde_json::from_str(&line).map_err(|err| {
-                                    eyre::eyre!("Failed to parse block: {line:?}.\nError: {err:?}",)
-                                });
-                            if let Err(err) = block_tx.send(block).await {
-                                log::error!("failed to send block: {err:?}");
-                            }
+                    for block in parse_block_log_file(f) {
+                        if let Err(err) = block_tx.send(block).await {
+                            log::error!("failed to send block: {err:?}");
                         }
                     }
                 }
@@ -148,4 +135,17 @@ pub async fn subscribe_hl_blocks(
     }
 
     Ok(())
+}
+
+pub fn parse_block_log_file(file: File) -> impl Iterator<Item = eyre::Result<Block>> {
+    BufReader::new(file)
+        .lines()
+        .filter_map(|line_result| match line_result {
+            Ok(line) if line.starts_with('{') => Some(
+                serde_json::from_str(&line)
+                    .map_err(|err| eyre::eyre!("Failed to parse block: {line:?}.\nError: {err:?}")),
+            ),
+            Ok(_) => None,
+            Err(e) => Some(Err(eyre::eyre!("Error reading line: {}", e))),
+        })
 }
