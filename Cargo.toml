@@ -1,5 +1,5 @@
 [package]
-name = "hl-node-watcher"
+name = "hyperliquid-node-watcher"
 version = "0.1.0"
 edition = "2021"
 

@@ -120,7 +120,7 @@ pub fn subscribe_hl_blocks(path: PathBuf, block_tx: Sender<Block>) -> eyre::Resu
                         path = modified_path.clone();
                     }
                     let mut f = File::open(&path).unwrap();
-                    f.seek(SeekFrom::Start(pos + 1)).unwrap();
+                    f.seek(SeekFrom::Start(pos)).unwrap();
 
                     pos = f.metadata().unwrap().len();
 
@@ -128,8 +128,10 @@ pub fn subscribe_hl_blocks(path: PathBuf, block_tx: Sender<Block>) -> eyre::Resu
                     for line in reader.lines() {
                         match line {
                             Ok(line) => {
-                                let block: Block = serde_json::from_str(&line).unwrap();
-                                block_tx.send(block).unwrap();
+                                if line.starts_with('{') {
+                                    let block: Block = serde_json::from_str(&line).unwrap();
+                                    block_tx.send(block).unwrap();
+                                }
                             }
                             Err(error) => {
                                 log::error!("{error:?}");
