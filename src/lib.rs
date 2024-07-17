@@ -37,6 +37,7 @@ pub struct SignedAction {
     pub vault_address: Option<Address>,
     pub action: Actions,
     pub nonce: u64,
+    pub is_frontend: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
