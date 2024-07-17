@@ -1,17 +1,11 @@
 use std::{
     fs::File,
     io::{BufRead, BufReader, Seek, SeekFrom},
-    path::{Path, PathBuf},
-    sync::mpsc::Sender,
+    path::PathBuf,
 };
 
 use ethers::{
-    abi::AbiEncode,
     contract::{Eip712, EthAbiType},
-    core::k256::{
-        elliptic_curve::{rand_core::block, FieldBytes},
-        Secp256k1,
-    },
     types::{transaction::eip712::Eip712, Address, Signature, H256},
 };
 use hyperliquid_rust_sdk::Actions;
@@ -100,7 +94,10 @@ impl SignedAction {
     }
 }
 
-pub fn subscribe_hl_blocks(path: PathBuf, block_tx: Sender<Block>) -> eyre::Result<()> {
+pub async fn subscribe_hl_blocks(
+    path: PathBuf,
+    block_tx: tokio::sync::mpsc::Sender<eyre::Result<Block>>,
+) -> eyre::Result<()> {
     let mut path = PathBuf::from(path);
     let mut pos = std::fs::metadata(&path)?.len();
 
@@ -129,13 +126,14 @@ pub fn subscribe_hl_blocks(path: PathBuf, block_tx: Sender<Block>) -> eyre::Resu
                         match line {
                             Ok(line) => {
                                 if line.starts_with('{') {
-                                    let block: Result<Block, serde_json::Error> =
-                                        serde_json::from_str(&line);
-                                    if let Ok(block) = block {
-                                        block_tx.send(block).unwrap();
-                                    } else {
-                                        log::info!("Coud not parse block: {:?}", line);
-                                        log::error!("{:?}", block);
+                                    let block: eyre::Result<Block> = serde_json::from_str(&line)
+                                        .map_err(|err| {
+                                            eyre::eyre!(
+                                                "Failed to parse block: {line:?}.\nError: {err:?}",
+                                            )
+                                        });
+                                    if let Err(err) = block_tx.send(block).await {
+                                        log::error!("failed to send block: {err:?}");
                                     }
                                 }
                             }
