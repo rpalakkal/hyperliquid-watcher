@@ -129,8 +129,14 @@ pub fn subscribe_hl_blocks(path: PathBuf, block_tx: Sender<Block>) -> eyre::Resu
                         match line {
                             Ok(line) => {
                                 if line.starts_with('{') {
-                                    let block: Block = serde_json::from_str(&line).unwrap();
-                                    block_tx.send(block).unwrap();
+                                    let block: Result<Block, serde_json::Error> =
+                                        serde_json::from_str(&line);
+                                    if let Ok(block) = block {
+                                        block_tx.send(block).unwrap();
+                                    } else {
+                                        log::info!("Coud not parse block: {:?}", line);
+                                        log::error!("{:?}", block);
+                                    }
                                 }
                             }
                             Err(error) => {
